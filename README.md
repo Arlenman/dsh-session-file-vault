@@ -111,11 +111,19 @@ userTags{ type, content[], date }
 ## 安装
 
 ```bash
-# 本地开发（link: 安装，改客户端半边刷新页面即生效；宿主半边改动需重启 DSH）
+# 1) 从 npm 装（推荐）
+dsh plugin --profile web add dsh-session-file-vault
+
+# 2) 从 GitHub 装（锁 tag）
+dsh plugin --profile web add github:Arlenman/dsh-session-file-vault#v0.2.0
+
+# 3) 本地开发（link: 安装，改客户端半边刷新页面即生效；宿主半边改动需重启 DSH）
 dsh plugin --profile <profile> add /绝对路径/to/dsh-session-file-vault
 ```
 
-或在 DSH 应用内「设置 → 插件 → 添加插件」填本地绝对路径。
+桌面端（Electron）只能在应用内「设置 → 插件 → 添加插件」里装（CLI 会报 `managed exclusively`），可填包名、`github:...` 或本地绝对路径。
+
+装完**必须重启一次 DSH**：宿主半边（索引、路由）不热重载；客户端半边刷新页面即可。
 
 `package.json` 不声明 `peerDependencies`，因此不受内核预发布版本范围校验影响；`dsh.client.inject` 为空数组，客户端不引入任何核心模块依赖。
 
