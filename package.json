@@ -1,0 +1,59 @@
+{
+  "name": "dsh-session-file-vault",
+  "version": "0.2.0",
+  "description": "会话文件库 —— 把各会话中主动交付（present）的文件按「类型 / 内容标签 / 日期」三个维度归集，提供列表、脑图与三维筛选",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "deliverables",
+    "session",
+    "vault"
+  ],
+  "license": "MIT",
+  "author": "Arlenman",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Arlenman/dsh-session-file-vault.git"
+  },
+  "homepage": "https://github.com/Arlenman/dsh-session-file-vault#readme",
+  "bugs": {
+    "url": "https://github.com/Arlenman/dsh-session-file-vault/issues"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "scan": "node scripts/scan-report.mjs",
+    "build-index": "node scripts/build-index.mjs",
+    "test:client": "node scripts/test-client-panel.mjs && node scripts/test-style.mjs && node scripts/test-graph.mjs && node scripts/test-features.mjs",
+    "test:style": "node scripts/test-style.mjs",
+    "test:graph": "node scripts/test-graph.mjs",
+    "test:features": "node scripts/test-features.mjs",
+    "test:all": "node --test test/*.test.mjs && node scripts/test-client-panel.mjs && node scripts/test-style.mjs && node scripts/test-graph.mjs && node scripts/test-features.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  }
+}
