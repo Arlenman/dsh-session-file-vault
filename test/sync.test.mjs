@@ -17,12 +17,22 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
 
 import { Vault, VaultError } from '../lib/vault.js';
-import { vaultPaths } from '../lib/paths.js';
+import { resolveDshHome, vaultPaths } from '../lib/paths.js';
 import { createRoutes, ROUTE_PREFIX } from '../lib/routes.js';
 import {
   applySettingsPatch,
@@ -504,6 +514,103 @@ test('路由：索引没建好时 sync 给 503 而不是 500', async () => {
     const res = await call(routes, 'sync', { method: 'POST', body: {} });
     assert.equal(res.status, 503);
     assert.equal(res.body.error.code, 'no-index');
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+/* ------------------------------------------------- 真机索引端到端（不重启 DSH） */
+
+const realHome = resolveDshHome(undefined, process.env);
+const realIndexPath = vaultPaths(realHome).indexPath;
+const hasRealIndex = existsSync(realIndexPath);
+
+/**
+ * 用本机真实索引跑一遍「设置 → 收藏 → 同步 → 核对落盘」。
+ *
+ * 这是宿主新路由在没有重启 DSH 之前能拿到的最强证据：走的是真实的 144 条记录、
+ * 真实文件路径、真实 settings.json 落盘，只是 DSH 那一层 HTTP 换成了直接调 route.fetch。
+ * 为了不把几十上百 MB 的文件复制到临时目录，只用「手动收藏」挑两个小文件。
+ */
+test('真机索引：设置 → 收藏 → 同步 → 核对落盘（幂等）', { skip: hasRealIndex ? false : '真实索引不存在' }, async () => {
+  const home = mkdtempSync(join(tmpdir(), 'sfv-realidx-'));
+  try {
+    const paths = vaultPaths(home);
+    mkdirSync(paths.vaultDir, { recursive: true });
+    copyFileSync(realIndexPath, paths.indexPath);
+
+    const vault = new Vault({ dshHome: home });
+    const routes = createRoutes(vault);
+    const outDir = join(home, 'sync-out');
+
+    // 挑两个「存在且不大」的文件，避免复制大文件
+    const all = vault.state().records;
+    const picks = all
+      .filter((r) => r.exists !== false && typeof r.sizeBytes === 'number' && r.sizeBytes > 0 && r.sizeBytes < 256 * 1024)
+      .slice(0, 2);
+    assert.ok(picks.length === 2, `真实索引里应能挑到两个小文件，实际 ${picks.length}`);
+
+    const saved = await call(routes, 'settings', {
+      method: 'POST',
+      body: { syncDir: outDir, syncMode: 'manual', syncTypes: [] },
+    });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.settings.syncMode, 'manual');
+
+    // 未收藏时匹配 0
+    const zero = await call(routes, 'sync', { method: 'POST', body: {} });
+    assert.equal(zero.body.report.matched, 0);
+
+    // 收藏这两个
+    for (const p of picks) {
+      const r = await call(routes, 'favorite', { method: 'POST', body: { id: p.id, fav: true } });
+      assert.equal(r.status, 200);
+      assert.ok(r.body.favorites.includes(p.id));
+    }
+
+    // 设置真的落到了 settings.json（不是只活在内存）
+    assert.ok(existsSync(paths.settingsPath), 'settings.json 必须落盘');
+    const onDisk = loadSettings(paths.settingsPath);
+    assert.equal(onDisk.syncMode, 'manual');
+    assert.equal(onDisk.favorites.length, picks.length);
+
+    const once = await call(routes, 'sync', { method: 'POST', body: {} });
+    const rep = once.body.report;
+    assert.equal(once.status, 200);
+    assert.equal(rep.matched, picks.length);
+    assert.equal(rep.failed, 0, `真实文件不该失败：${JSON.stringify(rep.errors)}`);
+    assert.equal(rep.copied + rep.updated, picks.length);
+
+    const files = readdirSync(outDir).filter((n) => {
+      try {
+        return statSync(join(outDir, n)).isFile();
+      } catch {
+        return false;
+      }
+    });
+    assert.equal(files.length, picks.length, `同步目录里应恰好 ${picks.length} 个文件，实际 ${files.length}`);
+
+    // 内容与源文件逐字节一致（不是空壳文件）
+    for (const p of picks) {
+      const hit = files.find((f) => f === basename(p.path) || f.startsWith(basename(p.path).replace(/\.[^.]+$/, '')));
+      assert.ok(hit, `没找到 ${basename(p.path)} 的副本，实际：${files.join(', ')}`);
+      const a = readFileSync(p.path);
+      const b = readFileSync(join(outDir, hit));
+      assert.equal(b.length, a.length, `${hit} 体积应与源文件一致`);
+      assert.equal(b.equals(a), true, `${hit} 内容应与源文件逐字节一致`);
+    }
+
+    // 再同步：幂等
+    const twice = await call(routes, 'sync', { method: 'POST', body: {} });
+    assert.equal(twice.body.report.copied, 0);
+    assert.equal(twice.body.report.updated, 0);
+    assert.equal(twice.body.report.skipped, picks.length);
+
+    // 取消收藏后不再匹配，且已同步的副本不被删除（删文件是用户的动作）
+    for (const p of picks) await call(routes, 'favorite', { method: 'POST', body: { id: p.id, fav: false } });
+    const after = await call(routes, 'sync', { method: 'POST', body: {} });
+    assert.equal(after.body.report.matched, 0);
+    assert.equal(readdirSync(outDir).length, picks.length, '取消同步不应删掉已有副本');
   } finally {
     rmSync(home, { recursive: true, force: true });
   }

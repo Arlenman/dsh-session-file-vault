@@ -1,4 +1,4 @@
-# dsh-session-file-vault（会话文件库）
+﻿# dsh-session-file-vault（会话文件库）
 
 把 DSH 会话里**模型主动展示（present）过的文件**归集起来，按 **文件类型 / 内容标签 / 日期** 三个维度分组浏览。
 
@@ -130,7 +130,7 @@ dsh plugin --profile <profile> add /绝对路径/to/dsh-session-file-vault
 ## 开发
 
 ```bash
-npm test              # 宿主半边：vault / routes / apply / sync，39 项
+npm test              # 宿主半边：vault / routes / apply / sync（含真机索引端到端），40 项
 npm run test:client   # 客户端半边离线渲染 + 事件真调用，126 项
 npm run test:style    # 样式注入（含「标签在但内容为空」回归），26 项
 npm run test:graph    # 脑图布局与渲染（几何 / 确定性 / 内外轨 / 筛选联动 / 平移缩放），117 项
